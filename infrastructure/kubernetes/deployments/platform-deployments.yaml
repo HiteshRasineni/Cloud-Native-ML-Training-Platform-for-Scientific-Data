@@ -1,0 +1,212 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: postgres}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: platform-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: platform-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: platform-secret, key: POSTGRES_DB}}}
+          ports: [{containerPort: 5432}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 500m, memory: 1Gi}}
+          readinessProbe: {exec: {command: [sh, -c, 'pg_isready -U "$POSTGRES_USER"']}, initialDelaySeconds: 5, periodSeconds: 10}
+          livenessProbe: {tcpSocket: {port: 5432}, initialDelaySeconds: 20, periodSeconds: 20}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: postgres-data}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: redis}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: redis}}
+  template:
+    metadata: {labels: {app: redis}}
+    spec:
+      containers:
+        - {name: redis, image: redis:7-alpine, ports: [{containerPort: 6379}], resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 200m, memory: 256Mi}}, readinessProbe: {exec: {command: [redis-cli, ping]}}, livenessProbe: {tcpSocket: {port: 6379}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: minio}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: minio}}
+  template:
+    metadata: {labels: {app: minio}}
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: [server, /data, --console-address, ':9001']
+          env:
+            - {name: MINIO_ROOT_USER, valueFrom: {secretKeyRef: {name: platform-secret, key: MINIO_ROOT_USER}}}
+            - {name: MINIO_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: platform-secret, key: MINIO_ROOT_PASSWORD}}}
+          ports: [{containerPort: 9000}, {containerPort: 9001}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1, memory: 2Gi}}
+          readinessProbe: {httpGet: {path: /minio/health/ready, port: 9000}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /minio/health/live, port: 9000}, periodSeconds: 20}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: minio-data}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: backend}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: backend}}
+  template:
+    metadata: {labels: {app: backend}}
+    spec:
+      containers:
+        - name: backend
+          image: platform/backend:latest
+          command: [sh, -c, alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000]
+          envFrom: [{configMapRef: {name: platform-config}}]
+          env:
+            - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: platform-secret, key: DATABASE_URL}}}
+          ports: [{containerPort: 8000}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1, memory: 1Gi}}
+          readinessProbe: {httpGet: {path: /health, port: 8000}, initialDelaySeconds: 10, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /health, port: 8000}, initialDelaySeconds: 30, periodSeconds: 20}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: scheduler}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: scheduler}}
+  template:
+    metadata: {labels: {app: scheduler}}
+    spec:
+      serviceAccountName: scheduler
+      containers:
+        - name: scheduler
+          image: platform/scheduler:latest
+          envFrom: [{configMapRef: {name: platform-config}}]
+          env:
+            - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: platform-secret, key: DATABASE_URL}}}
+          ports: [{containerPort: 8001}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1, memory: 1Gi}}
+          readinessProbe: {tcpSocket: {port: 8001}, initialDelaySeconds: 10, periodSeconds: 10}
+          livenessProbe: {tcpSocket: {port: 8001}, initialDelaySeconds: 30, periodSeconds: 20}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: frontend}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: frontend}}
+  template:
+    metadata: {labels: {app: frontend}}
+    spec:
+      containers:
+        - name: frontend
+          image: platform/frontend:latest
+          env: [{name: NEXT_PUBLIC_API_URL, value: http://backend:8000}]
+          ports: [{containerPort: 3000}]
+          resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          readinessProbe: {tcpSocket: {port: 3000}, initialDelaySeconds: 10, periodSeconds: 10}
+          livenessProbe: {tcpSocket: {port: 3000}, initialDelaySeconds: 30, periodSeconds: 20}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mlflow}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mlflow}}
+  template:
+    metadata: {labels: {app: mlflow}}
+    spec:
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v2.19.0
+          command: [mlflow, server, --host, 0.0.0.0, --port, '5000', --backend-store-uri, sqlite:////mlflow/mlflow.db, --default-artifact-root, s3://mlflow/, --serve-artifacts]
+          ports: [{containerPort: 5000}]
+          resources: {requests: {cpu: 100m, memory: 512Mi}, limits: {cpu: 1, memory: 2Gi}}
+          readinessProbe: {tcpSocket: {port: 5000}, initialDelaySeconds: 20, periodSeconds: 10}
+          livenessProbe: {tcpSocket: {port: 5000}, initialDelaySeconds: 60, periodSeconds: 20}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: prometheus}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: prometheus}}
+  template:
+    metadata: {labels: {app: prometheus}}
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.55.1
+          args: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus]
+          ports: [{containerPort: 9090}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1, memory: 2Gi}}
+          readinessProbe: {httpGet: {path: /-/ready, port: 9090}, initialDelaySeconds: 10, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /-/healthy, port: 9090}, initialDelaySeconds: 30, periodSeconds: 20}
+          volumeMounts: [{name: config, mountPath: /etc/prometheus/prometheus.yml, subPath: prometheus.yml}, {name: data, mountPath: /prometheus}]
+      volumes: [{name: config, configMap: {name: prometheus-config}}, {name: data, persistentVolumeClaim: {claimName: prometheus-data}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: grafana}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grafana}}
+  template:
+    metadata: {labels: {app: grafana}}
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.3.1
+          env: [{name: GF_AUTH_ANONYMOUS_ENABLED, value: 'true'}, {name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: Viewer}]
+          ports: [{containerPort: 3000}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1, memory: 1Gi}}
+          readinessProbe: {httpGet: {path: /api/health, port: 3000}, initialDelaySeconds: 20, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /api/health, port: 3000}, initialDelaySeconds: 60, periodSeconds: 20}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/grafana}
+            - {name: dashboards, mountPath: /var/lib/grafana/dashboards}
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/dashboards/dashboards.yml, subPath: dashboards.yml}
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/datasources/prometheus.yml, subPath: prometheus.yml}
+      volumes:
+        - {name: data, persistentVolumeClaim: {claimName: grafana-data}}
+        - {name: dashboards, configMap: {name: grafana-dashboards}}
+        - {name: provisioning, configMap: {name: grafana-provisioning}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pushgateway}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: pushgateway}}
+  template:
+    metadata: {labels: {app: pushgateway}}
+    spec:
+      containers:
+        - {name: pushgateway, image: prom/pushgateway:v1.9.0, ports: [{containerPort: 9091}], resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 200m, memory: 256Mi}}, readinessProbe: {httpGet: {path: /-/ready, port: 9091}}, livenessProbe: {httpGet: {path: /-/healthy, port: 9091}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cadvisor}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: cadvisor}}
+  template:
+    metadata: {labels: {app: cadvisor}}
+    spec:
+      containers:
+        - name: cadvisor
+          image: gcr.io/cadvisor/cadvisor:v0.49.1
+          securityContext: {privileged: true}
+          ports: [{containerPort: 8080}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1, memory: 1Gi}}
+          volumeMounts: [{name: rootfs, mountPath: /rootfs, readOnly: true}, {name: varrun, mountPath: /var/run, readOnly: true}, {name: sys, mountPath: /sys, readOnly: true}, {name: docker, mountPath: /var/lib/docker, readOnly: true}]
+      volumes: [{name: rootfs, hostPath: {path: /}}, {name: varrun, hostPath: {path: /var/run}}, {name: sys, hostPath: {path: /sys}}, {name: docker, hostPath: {path: /var/lib/docker}}]

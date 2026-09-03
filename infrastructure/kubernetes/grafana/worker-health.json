@@ -1,0 +1,14 @@
+{
+  "uid": "worker-health",
+  "title": "Worker Health",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "Active Workers", "targets": [{"expr": "sum(worker_active)", "legendFormat": "active"}]},
+    {"id": 2, "type": "timeseries", "title": "Worker Failures by Type", "targets": [{"expr": "sum by (error_type) (rate(worker_failures_total[5m]))", "legendFormat": "{{error_type}}"}]},
+    {"id": 3, "type": "timeseries", "title": "Heartbeat Failure Rate", "targets": [{"expr": "rate(worker_heartbeat_failures_total[5m])", "legendFormat": "heartbeat failures/sec"}]},
+    {"id": 4, "type": "timeseries", "title": "Worker CPU", "targets": [{"expr": "sum by (container_label_platform_worker_id) (rate(container_cpu_usage_seconds_total{container_label_platform_worker_id!=\"\"}[5m]))", "legendFormat": "{{container_label_platform_worker_id}}"}], "fieldConfig": {"defaults": {"unit": "percentunit"}}},
+    {"id": 5, "type": "timeseries", "title": "Worker Memory", "targets": [{"expr": "sum by (container_label_platform_worker_id) (container_memory_working_set_bytes{container_label_platform_worker_id!=\"\"})", "legendFormat": "{{container_label_platform_worker_id}}"}], "fieldConfig": {"defaults": {"unit": "bytes"}}}
+  ]
+}

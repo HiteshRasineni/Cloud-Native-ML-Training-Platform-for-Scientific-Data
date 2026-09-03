@@ -1,0 +1,52 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Environment & secrets ---
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# --- Logs & temp ---
+*.log
+logs/
+tmp/
+*.tmp
+
+# --- Build artifacts ---
+dist/
+build/
+*.egg
+
+# --- ML / data cruft (never commit runs or checkpoints) ---
+mlruns/
+mlartifacts/
+*.pt
+*.ckpt
+
+# --- Databases / local state ---
+*.db
+*.sqlite3
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

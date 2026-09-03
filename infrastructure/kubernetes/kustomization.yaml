@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cloud-ml
+resources:
+  - configmaps-secrets/platform-config.yaml
+  - configmaps-secrets/platform-secret.yaml
+  - configmaps-secrets/prometheus-config.yaml
+  - rbac.yaml
+  - storage/persistent-volume-claims.yaml
+  - services/platform-services.yaml
+  - deployments/platform-deployments.yaml
+configMapGenerator:
+  - name: grafana-dashboards
+    files:
+      - platform-overview.json=grafana/platform-overview.json
+      - scheduler-state.json=grafana/scheduler-state.json
+      - worker-health.json=grafana/worker-health.json
+      - experiment-activity.json=grafana/experiment-activity.json
+  - name: grafana-provisioning
+    files:
+      - dashboards.yml=grafana/dashboards.yml
+      - prometheus.yml=grafana/prometheus.yml

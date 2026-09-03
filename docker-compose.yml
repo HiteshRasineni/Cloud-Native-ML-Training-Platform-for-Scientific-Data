@@ -1,0 +1,226 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mlplatform
+      POSTGRES_PASSWORD: mlplatform
+      POSTGRES_DB: mlplatform
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlplatform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: mlplatform
+      MINIO_ROOT_PASSWORD: mlplatform-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - miniodata:/data
+
+  # One-shot: creates the mlplatform (and mlflow) buckets on startup
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: mlplatform
+      MINIO_ROOT_PASSWORD: mlplatform-secret
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 mlplatform mlplatform-secret &&
+      mc mb -p local/mlplatform &&
+      mc mb -p local/mlflow &&
+      echo 'buckets ready'"
+
+  # ML metrics/params/model artifacts. SQLite backend store (simple, self-contained;
+  # Postgres is reserved for lifecycle state) with a docker volume for persistence.
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.19.0
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root s3://mlflow/
+      --serve-artifacts
+    environment:
+      AWS_ACCESS_KEY_ID: mlplatform
+      AWS_SECRET_ACCESS_KEY: mlplatform-secret
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    ports:
+      - "5000:5000"
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - mlflowdata:/mlflow
+
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    ports:
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    depends_on:
+      backend:
+        condition: service_started
+      scheduler:
+        condition: service_started
+      pushgateway:
+        condition: service_healthy
+      cadvisor:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    ports:
+      - "3001:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/platform-overview.json
+    volumes:
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://mlplatform:mlplatform@postgres:5432/mlplatform
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: mlplatform
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./datasets/sample:/datasets/sample:ro
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  scheduler:
+    build: ./scheduler
+    environment:
+      DATABASE_URL: postgresql+psycopg2://mlplatform:mlplatform@postgres:5432/mlplatform
+      REDIS_URL: redis://redis:6379/0
+      WORKER_IMAGE: cloud-ml-platform-worker:latest
+      BACKEND_URL: http://backend:8000
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: mlplatform
+      MINIO_ROOT_PASSWORD: mlplatform-secret
+      MINIO_BUCKET: mlplatform
+      WORKER_NETWORK: ${WORKER_NETWORK:-cloud-ml-platform_default}
+      EXECUTOR_BACKEND: local
+      PUSHGATEWAY_URL: http://pushgateway:9091
+      SCHEDULER_METRICS_PORT: 8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+      pushgateway:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Worker: build-only in Phase 1+; containers are launched on demand by the
+  # scheduler's LocalDockerExecutor. Pre-build it with: docker compose build worker
+  worker:
+    build: ./worker
+    image: cloud-ml-platform-worker:latest
+    entrypoint: ["true"]
+    profiles: ["build-only"]
+
+volumes:
+  pgdata:
+  miniodata:
+  mlflowdata:

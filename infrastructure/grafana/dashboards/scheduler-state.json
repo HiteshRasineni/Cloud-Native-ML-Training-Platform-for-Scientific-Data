@@ -1,0 +1,13 @@
+{
+  "uid": "scheduler-state",
+  "title": "Scheduler State",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "Queued and Running Jobs", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}, "targets": [{"expr": "scheduler_jobs_queued", "legendFormat": "queued"}, {"expr": "scheduler_jobs_running", "legendFormat": "running"}]},
+    {"id": 2, "type": "timeseries", "title": "Completed and Failed Jobs", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}, "targets": [{"expr": "increase(scheduler_jobs_completed_total[5m])", "legendFormat": "completed"}, {"expr": "increase(scheduler_jobs_failed_total[5m])", "legendFormat": "failed"}]},
+    {"id": 3, "type": "timeseries", "title": "Retries by Error Type", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}, "targets": [{"expr": "sum by (error_type) (rate(scheduler_job_retries_total[5m]))", "legendFormat": "{{error_type}}"}]},
+    {"id": 4, "type": "stat", "title": "Average Job Duration", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}, "targets": [{"expr": "rate(scheduler_job_duration_seconds_sum[5m]) / rate(scheduler_job_duration_seconds_count[5m])", "legendFormat": "duration"}], "fieldConfig": {"defaults": {"unit": "s"}}}
+  ]
+}

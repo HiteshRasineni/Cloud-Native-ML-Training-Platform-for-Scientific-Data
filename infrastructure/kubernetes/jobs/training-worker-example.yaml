@@ -1,0 +1,36 @@
+# Reference only. The scheduler creates an equivalent indexed Job and a
+# per-job ConfigMap dynamically for every experiment.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: training-example
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        platform.job: training-example
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: training-worker
+          image: platform/training-worker:latest
+          env:
+            - name: EXPERIMENT_ID
+              value: example
+            - name: WORKER_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['batch.kubernetes.io/job-completion-index']
+            - name: EXPERIMENT_CONFIG_PATH
+              value: /etc/platform/experiment.json
+          volumeMounts:
+            - name: experiment-config
+              mountPath: /etc/platform
+      volumes:
+        - name: experiment-config
+          configMap:
+            name: training-example-config

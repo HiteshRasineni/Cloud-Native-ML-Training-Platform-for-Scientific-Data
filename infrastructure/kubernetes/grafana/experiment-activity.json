@@ -1,0 +1,13 @@
+{
+  "uid": "experiment-activity",
+  "title": "Experiment Activity",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "Experiments Submitted", "targets": [{"expr": "increase(experiments_submitted_total[5m])", "legendFormat": "submitted"}]},
+    {"id": 2, "type": "stat", "title": "Average Time to Completion", "targets": [{"expr": "rate(scheduler_job_duration_seconds_sum[5m]) / rate(scheduler_job_duration_seconds_count[5m])", "legendFormat": "average"}], "fieldConfig": {"defaults": {"unit": "s"}}},
+    {"id": 3, "type": "timeseries", "title": "Training Epoch Duration", "targets": [{"expr": "rate(worker_training_epoch_duration_seconds_sum[5m]) / rate(worker_training_epoch_duration_seconds_count[5m])", "legendFormat": "average epoch"}], "fieldConfig": {"defaults": {"unit": "s"}}},
+    {"id": 4, "type": "timeseries", "title": "Epoch Duration p95", "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(worker_training_epoch_duration_seconds_bucket[5m])))", "legendFormat": "p95 epoch"}], "fieldConfig": {"defaults": {"unit": "s"}}}
+  ]
+}
