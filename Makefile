@@ -41,3 +41,10 @@ k8s-down: ## Remove the Phase 5 namespace and all namespaced resources
 k8s-logs: ## Tail scheduler logs and the most recent training worker logs
 	kubectl logs -n cloud-ml deploy/scheduler --tail=100
 	kubectl logs -n cloud-ml -l platform.job --all-containers=true --tail=100
+
+k8s-build-gpu:
+	docker build -f worker/Dockerfile.gpu -t platform/training-worker:gpu ./worker
+
+oracle-k3s-install:
+	curl -sfL https://get.k3s.io | sh -
+	sudo k3s kubectl get nodes

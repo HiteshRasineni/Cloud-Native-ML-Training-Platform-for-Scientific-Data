@@ -28,3 +28,20 @@ def test_launch_creates_indexed_multi_worker_job():
     assert "worker-a" in config.data["experiment.json"]
     assert "worker-b" in config.data["experiment.json"]
     assert len(handle) > 0
+
+
+def test_launch_sets_resources_and_gpu():
+    from unittest.mock import Mock, patch
+    import pytest
+    kubernetes = pytest.importorskip("kubernetes")
+    from executors.kubernetes.executor import KubernetesExecutor
+    with patch("executors.kubernetes.executor.config.load_incluster_config"), patch("executors.kubernetes.executor.config.load_kube_config"):
+        ex = KubernetesExecutor(namespace="test")
+    ex.core = Mock(); ex.batch = Mock()
+    ex.launch("exp1", {"resources": {"workers": 1, "cpu": "500m", "memory": "2Gi", "gpu": 1, "node_selector": {"nvidia.com/gpu.present": "true"}}, "_worker_ids": ["w1"]})
+    body = ex.batch.create_namespaced_job.call_args.args[1]
+    c = body.spec.template.spec.containers[0]
+    assert c.resources.limits["cpu"] == "500m"
+    assert c.resources.limits["memory"] == "2Gi"
+    assert c.resources.limits["nvidia.com/gpu"] == "1"
+    assert body.spec.template.spec.node_selector == {"nvidia.com/gpu.present": "true"}

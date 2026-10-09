@@ -1,0 +1,31 @@
+{
+  "name": "cloud-ml-platform",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
+  "postCreateCommand": "curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind && kind version && kubectl version --client && python --version && node --version",
+  "forwardPorts": [3000, 3001, 8000, 8001, 5000, 9090, 9000, 9001],
+  "portsAttributes": {
+    "3000": {"label": "frontend", "onAutoForward": "notify"},
+    "8000": {"label": "backend", "onAutoForward": "notify"},
+    "3001": {"label": "grafana", "onAutoForward": "notify"},
+    "5000": {"label": "mlflow", "onAutoForward": "notify"},
+    "9090": {"label": "prometheus", "onAutoForward": "notify"}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-kubernetes-tools.vscode-kubernetes-tools"]
+    }
+  },
+  "remoteUser": "codespace"
+}

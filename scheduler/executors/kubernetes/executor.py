@@ -21,6 +21,33 @@ class KubernetesExecutor(Executor):
         self.batch = client.BatchV1Api()
         self.core = client.CoreV1Api()
 
+    def _build_resources(self, spec):
+        res = (spec.get("resources") or {})
+        cpu = str(res.get("cpu", "1"))
+        mem = str(res.get("memory", "1Gi"))
+        gpu = int(res.get("gpu", 0) or 0)
+        limits = {"cpu": cpu, "memory": mem}
+        requests = {"cpu": cpu, "memory": mem}
+        if gpu > 0:
+            limits["nvidia.com/gpu"] = str(gpu)
+            requests["nvidia.com/gpu"] = str(gpu)
+        return client.V1ResourceRequirements(limits=limits, requests=requests)
+
+    def _build_tolerations(self, spec):
+        import json as _json
+        res = (spec.get("resources") or {})
+        raw = res.get("tolerations_json", "") or ""
+        if not raw:
+            return None
+        try:
+            items = _json.loads(raw)
+        except Exception:
+            return None
+        out = []
+        for td in items:
+            out.append(client.V1Toleration(key=td.get("key"), operator=td.get("operator", "Equal"), value=td.get("value"), effect=td.get("effect")))
+        return out or None
+
     def launch(self, experiment_id: str, spec: dict[str, Any]) -> str:
         job_name = f"training-{experiment_id[:20]}-{uuid.uuid4().hex[:8]}"
         worker_ids = spec.get("_worker_ids") or [f"{job_name}-{i}" for i in range(spec.get("resources", {}).get("workers", 1))]
@@ -37,6 +64,7 @@ class KubernetesExecutor(Executor):
                 restart_policy="Never",
                 containers=[client.V1Container(
                     name="training-worker", image=self.image,
+                    resources=self._build_resources(spec),
                     env=[
                         client.V1EnvVar(name="EXPERIMENT_ID", value=experiment_id),
                         client.V1EnvVar(name="WORKER_INDEX", value_from=client.V1EnvVarSource(
@@ -51,6 +79,8 @@ class KubernetesExecutor(Executor):
                     ],
                     volume_mounts=[client.V1VolumeMount(name="experiment-config", mount_path="/etc/platform")],
                 )],
+                node_selector=(spec.get("resources") or {}).get("node_selector") or None,
+                tolerations=self._build_tolerations(spec),
                 volumes=[client.V1Volume(name="experiment-config", config_map=client.V1ConfigMapVolumeSource(name=config_name))],
             ),
         )

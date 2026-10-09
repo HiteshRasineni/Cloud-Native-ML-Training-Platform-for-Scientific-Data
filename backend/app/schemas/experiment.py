@@ -27,7 +27,9 @@ class ModelSpec(BaseModel):
 
 class ResourcesSpec(BaseModel):
     workers: int = Field(ge=1, le=1024, default=1)
-    cpu: str = Field(default="1")
+    cpu: str = Field(default="1", description="K8s CPU request/limit e.g. 500m")
+    gpu: int = Field(ge=0, le=8, default=0, description="GPUs per worker")
+    node_selector: dict = Field(default_factory=dict)
     memory: str = Field(pattern=r"^\d+(Mi|Gi)$", default="1Gi")
 
 
