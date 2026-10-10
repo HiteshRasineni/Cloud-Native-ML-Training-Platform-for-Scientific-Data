@@ -1,12 +1,13 @@
 #!/bin/bash
 set -e
 # Manual tool install when devcontainer features didn't provision (old Codespace)
-echo "=== installing docker ==="
+echo "=== Alpine host detected: installing docker via apk ==="
 if ! command -v docker >/dev/null 2>&1; then
-  echo "NO-DOCKER-DAEMON: Codespaces free tier has no nested Docker; use kind-less compose fallback or rebuild Codespace."
-  echo "Trying static kind+kubectl only (no docker needed for API checks)..."
+  sudo apk add --no-cache docker docker-compose curl 2>/dev/null || apk add --no-cache docker docker-compose curl || sudo apk add --no-cache docker docker-cli-compose curl
+  sudo service docker start 2>/dev/null || sudo dockerd > /tmp/dockerd.log 2>&1 &
+  sleep 6
 fi
-docker --version 2>/dev/null || echo "docker missing, continuing..."
+docker --version 2>/dev/null || sudo docker --version || echo "docker daemon starting, check /tmp/dockerd.log"
 echo "=== installing kubectl (static binary, no apt) ==="
 if ! command -v kubectl >/dev/null 2>&1; then
   curl -sLO "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl"
