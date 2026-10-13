@@ -71,7 +71,12 @@ def _register_workers(session: Any, job_id: str, worker_ids: list[str], handle: 
     from app.models import Worker
 
     containers = json.loads(handle) if handle else {}
-    by_worker = {worker_id: container_id for container_id, worker_id in containers.items()}
+    # LocalDockerExecutor: {container_id: worker_id}; KubernetesExecutor:
+    # {job_name, config_name, worker_ids: [...]}. Normalize to worker->ref.
+    if isinstance(containers, dict) and "worker_ids" in containers:
+        by_worker = {wid: containers.get("job_name", "") for wid in containers["worker_ids"]}
+    else:
+        by_worker = {worker_id: container_id for container_id, worker_id in containers.items()}
     now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
     for worker_id in worker_ids:
         worker = session.get(Worker, worker_id)
