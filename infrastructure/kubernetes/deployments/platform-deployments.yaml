@@ -133,9 +133,15 @@ spec:
           image: ghcr.io/mlflow/mlflow:v2.19.0
           command: [mlflow, server, --host, 0.0.0.0, --port, '5000', --backend-store-uri, sqlite:////mlflow/mlflow.db, --default-artifact-root, s3://mlflow/, --serve-artifacts]
           ports: [{containerPort: 5000}]
+          env:
+            - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: platform-secret, key: AWS_ACCESS_KEY_ID}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: platform-secret, key: AWS_SECRET_ACCESS_KEY}}}
+            - {name: MLFLOW_S3_ENDPOINT_URL, value: 'http://minio:9000'}
           resources: {requests: {cpu: 100m, memory: 512Mi}, limits: {cpu: 1, memory: 2Gi}}
           readinessProbe: {tcpSocket: {port: 5000}, initialDelaySeconds: 20, periodSeconds: 10}
           livenessProbe: {tcpSocket: {port: 5000}, initialDelaySeconds: 60, periodSeconds: 20}
+          volumeMounts: [{name: mlflow-data, mountPath: /mlflow}]
+      volumes: [{name: mlflow-data, emptyDir: {}}]
 ---
 apiVersion: apps/v1
 kind: Deployment
