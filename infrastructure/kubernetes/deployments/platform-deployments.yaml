@@ -68,6 +68,7 @@ spec:
       containers:
         - name: backend
           image: platform/backend:latest
+          imagePullPolicy: Never
           command: [sh, -c, alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000]
           envFrom: [{configMapRef: {name: platform-config}}]
           env:
@@ -90,6 +91,7 @@ spec:
       containers:
         - name: scheduler
           image: platform/scheduler:latest
+          imagePullPolicy: Never
           envFrom: [{configMapRef: {name: platform-config}}]
           env:
             - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: platform-secret, key: DATABASE_URL}}}
