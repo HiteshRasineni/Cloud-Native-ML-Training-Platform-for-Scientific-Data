@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class DatasetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     version: str = Field(min_length=1, max_length=64)
-    format: str = Field(pattern="^(parquet|csv)$", default="parquet")
+    format: str = Field(pattern="^(parquet|csv|root)$", default="parquet")
     storage_location: str = Field(min_length=1)  # e.g. s3://mlplatform/datasets/cms-run2015/v1/data.parquet
     metadata: dict[str, Any] = Field(default_factory=dict)
     size: int | None = Field(default=None, ge=0)

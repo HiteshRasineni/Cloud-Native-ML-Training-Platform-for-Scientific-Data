@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from runtime import checkpoint as checkpoint_service
 from runtime.backend_client import register_artifact
+from runtime.dataloader import load_dataframe
 from runtime.mlflow_tracker import MLflowTracker
 from runtime.storage import download_to_temp
 from workloads.base import Workload
@@ -17,7 +18,7 @@ from .flow import NormalizingFlow
 
 logger = logging.getLogger("worker.nf")
 
-FEATURES = ["pt", "eta", "phi", "energy"]
+DEFAULT_FEATURES = ["pt", "eta", "phi", "energy"]
 
 
 class NormalizingFlowWorkload(Workload):
@@ -33,13 +34,28 @@ class NormalizingFlowWorkload(Workload):
         self.transforms = int(arch.get("transforms", 4))
         self.hidden_features = int(arch.get("hidden_features", 32))
 
-        storage_location = spec["dataset"].get("storage_location")
+        dataset = spec["dataset"]
+        storage_location = dataset.get("storage_location")
         if not storage_location:
             raise ValueError("spec.dataset.storage_location missing — dataset not resolved by backend")
 
+        # Format + branch selection are dataset metadata; the workload stays
+        # format-agnostic and just asks the loader for a DataFrame.
+        fmt = dataset.get("format", "parquet")
+        meta = dataset.get("metadata") or {}
+        tree = dataset.get("tree") or meta.get("tree", "Events")
+        features = dataset.get("features") or meta.get("features") or DEFAULT_FEATURES
+        self.features = list(features)
+
         local_path = download_to_temp(storage_location)
-        df = pd.read_parquet(local_path)
-        data = df[FEATURES].to_numpy(dtype=np.float32)
+        df = load_dataframe(local_path, fmt, tree=tree)
+        missing = [c for c in self.features if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"dataset is missing required feature columns {missing}; "
+                f"available: {list(df.columns)}"
+            )
+        data = df[self.features].to_numpy(dtype=np.float32)
         self.dataset_dim = data.shape[1]
 
         self.flow = NormalizingFlow(
@@ -62,12 +78,13 @@ class NormalizingFlowWorkload(Workload):
                 "transforms": self.transforms,
                 "hidden_features": self.hidden_features,
                 "dataset": f"{spec['dataset']['name']}:{spec['dataset']['version']}",
-                "features": ",".join(FEATURES),
+                "dataset_format": fmt,
+                "features": ",".join(self.features),
             }
         )
         logger.info(
-            "NF setup done: dim=%d transforms=%d hidden=%d rows=%d",
-            self.dataset_dim, self.transforms, self.hidden_features, data.shape[0],
+            "NF setup done: format=%s dim=%d transforms=%d hidden=%d rows=%d features=%s",
+            fmt, self.dataset_dim, self.transforms, self.hidden_features, data.shape[0], self.features,
         )
 
     def train_epoch(self, epoch: int) -> dict[str, float]:
@@ -100,7 +117,7 @@ class NormalizingFlowWorkload(Workload):
         import tempfile
 
         local_path = os.path.join(tempfile.gettempdir(), f"model_{self.experiment_id}.pt")
-        torch.save({"model_state": self.flow.state_dict(), "features": FEATURES}, local_path)
+        torch.save({"model_state": self.flow.state_dict(), "features": self.features}, local_path)
         self.mlflow.log_artifact(local_path)
         os.remove(local_path)
         self.mlflow.end("FINISHED")

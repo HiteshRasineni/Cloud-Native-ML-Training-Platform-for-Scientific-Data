@@ -1,4 +1,4 @@
-.PHONY: up down build test logs migrate sample-dataset register-sample-dataset k8s-up k8s-down k8s-logs
+.PHONY: up down build test logs migrate sample-dataset register-sample-dataset sample-root-dataset register-root-dataset k8s-up k8s-down k8s-logs
 
 up: ## Start the full stack (builds worker image first)
 	docker compose build worker
@@ -26,6 +26,13 @@ sample-dataset: ## Generate the deterministic sample parquet (via a pinned conta
 
 register-sample-dataset: sample-dataset ## Upload sample to MinIO + register as cms-run2015:v1
 	docker compose exec backend python scripts/register_sample_dataset.py
+
+sample-root-dataset: ## Generate the deterministic sample ROOT file (needs uproot)
+	docker run --rm -v "$(CURDIR)/datasets/sample":/data python:3.12-slim \
+		sh -c "pip install -q numpy uproot && python /data/generate_sample_root.py --out /data/cms-run2015_v1.root"
+
+register-root-dataset: ## Generate + upload ROOT sample + register as cms-run2015-root:v1
+	docker compose exec backend python scripts/register_root_dataset.py
 
 k8s-up: ## Build images, load them into kind, and apply the Kubernetes overlay
 	docker build -t platform/backend:latest ./backend

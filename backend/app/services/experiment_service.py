@@ -24,6 +24,10 @@ def create_experiment(db: Session, payload: ExperimentCreate) -> Experiment:
     ds = dataset_service.resolve(db, payload.spec.dataset.name, payload.spec.dataset.version)
     spec = payload.spec.model_dump()
     spec["dataset"]["storage_location"] = ds.storage_location
+    # Embed format + metadata so the worker knows how to parse the object
+    # (e.g. format=root, tree=Events, feature branch list) without guessing.
+    spec["dataset"]["format"] = ds.format
+    spec["dataset"]["metadata"] = ds.meta or {}
     exp = Experiment(
         name=payload.spec.experiment.name,
         status=ExperimentStatus.QUEUED,

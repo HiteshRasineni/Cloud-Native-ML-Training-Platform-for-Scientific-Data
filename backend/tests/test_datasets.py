@@ -95,3 +95,34 @@ def test_create_experiment_rejects_unregistered_dataset(db_session):
     )
     with pytest.raises(dataset_service.DatasetNotFoundError):
         experiment_service.create_experiment(db_session, ExperimentCreate(spec=spec))
+
+
+# ---------- Dataset format validation (parquet / csv / root) ----------
+
+
+def test_root_format_accepted():
+    from app.schemas.dataset import DatasetCreate
+
+    ds = DatasetCreate(
+        name="cms-run2015-root",
+        version="v1",
+        format="root",
+        storage_location="s3://mlplatform/datasets/cms-run2015-root/v1/data.root",
+        metadata={"tree": "Events", "features": ["pt", "eta", "phi", "energy"]},
+    )
+    assert ds.format == "root"
+
+
+def test_unknown_format_rejected():
+    from pydantic import ValidationError
+
+    from app.schemas.dataset import DatasetCreate
+
+    with pytest.raises(ValidationError):
+        DatasetCreate(
+            name="bad",
+            version="v1",
+            format="avro",
+            storage_location="s3://mlplatform/datasets/bad/v1/data.avro",
+        )
+

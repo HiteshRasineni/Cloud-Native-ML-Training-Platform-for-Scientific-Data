@@ -1,6 +1,7 @@
 numpy==2.2.1
 pandas==2.2.3
 pyarrow==17.0.0
+uproot==5.7.4
 boto3==1.35.81
 mlflow==2.19.0
 redis==5.2.1
