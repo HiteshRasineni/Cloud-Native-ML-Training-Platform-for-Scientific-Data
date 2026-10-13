@@ -9,7 +9,7 @@ metadata:
   name: scheduler-job-manager
 rules:
   - apiGroups: [batch]
-    resources: [jobs]
+    resources: [jobs, jobs/status]
     verbs: [get, list, watch, create, delete, patch]
   - apiGroups: ['']
     resources: [pods, configmaps]

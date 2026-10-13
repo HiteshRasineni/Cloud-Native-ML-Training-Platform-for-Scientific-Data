@@ -18,6 +18,7 @@ class KubernetesExecutor(Executor):
             config.load_kube_config()
         self.namespace = namespace or os.getenv("K8S_NAMESPACE", "default")
         self.image = image or os.getenv("WORKER_IMAGE", "platform/training-worker:latest")
+        self.image_pull_policy = os.getenv("WORKER_IMAGE_PULL_POLICY", "IfNotPresent")
         self.batch = client.BatchV1Api()
         self.core = client.CoreV1Api()
 
@@ -64,6 +65,7 @@ class KubernetesExecutor(Executor):
                 restart_policy="Never",
                 containers=[client.V1Container(
                     name="training-worker", image=self.image,
+                    image_pull_policy=self.image_pull_policy,
                     resources=self._build_resources(spec),
                     env=[
                         client.V1EnvVar(name="EXPERIMENT_ID", value=experiment_id),
